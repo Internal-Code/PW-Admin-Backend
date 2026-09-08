@@ -1,0 +1,20 @@
+[project]
+name = "pw-admin-backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "litestar[standard,opentelemetry]>=2.24.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0",
+    "pydantic>=2.13.5",
+    "pydantic-settings>=2.15.0",
+    "redis>=5.2.0",
+]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*", "config*", "error*", "middlewares*", "service*", "utils*"]

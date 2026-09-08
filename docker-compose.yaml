@@ -1,0 +1,88 @@
+name: pw-admin-backend
+
+# Pick the environment at runtime:
+#   ENVIRONMENT=development docker compose up        (default)
+#   ENVIRONMENT=staging     docker compose up
+#   ENVIRONMENT=production   docker compose up
+# The value selects which env/.env.<ENVIRONMENT> file the app loads. The env/
+# directory is mounted read-only, so editing a file there and restarting the
+# backend is enough.
+#
+# Published host ports can be overridden (defaults chosen to avoid clashing with a
+# local redis / grafana):
+#   HTTP_PORT (8080)  GRAFANA_PORT (3002)  REDIS_PORT (6380)
+#   OTLP_GRPC_PORT (4317)  OTLP_HTTP_PORT (4318)
+# Put these plus ENVIRONMENT in a local ./.env file and compose picks them up.
+
+x-environment: &environment ${ENVIRONMENT:-development}
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ENVIRONMENT: *environment
+      REDIS_URL: redis://redis:6379/0
+      OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-lgtm:4318
+      SERVICE_NAME: pw-admin-backend
+    volumes:
+      - ./env:/app/env:ro
+      - backend-logs:/app/log
+    depends_on:
+      redis:
+        condition: service_healthy
+      otel-lgtm:
+        condition: service_started
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redis-data:/data
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # Grafana all-in-one OTel backend: Grafana + Tempo (traces) + Loki (logs)
+  # + Prometheus (metrics) + an OTel Collector listening on 4317/4318.
+  otel-lgtm:
+    image: grafana/otel-lgtm:latest
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-data:/data/grafana
+      - prometheus-data:/data/prometheus
+      - loki-data:/data/loki
+    ports:
+      - "${GRAFANA_PORT:-3002}:3000"   # Grafana UI -> http://localhost:3002 (admin / admin)
+      - "${OTLP_GRPC_PORT:-4317}:4317" # OTLP gRPC
+      - "${OTLP_HTTP_PORT:-4318}:4318" # OTLP HTTP
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${HTTP_PORT:-8080}:80"   # http://pw-backend:8080  (add "127.0.0.1 pw-backend" to /etc/hosts)
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  backend-logs:
+  redis-data:
+  grafana-data:
+  prometheus-data:
+  loki-data:
